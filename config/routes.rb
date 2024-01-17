@@ -1,8 +1,10 @@
 require 'sidekiq/web'
+
 Rails.application.routes.draw do
   mount Rswag::Ui::Engine => '/api-docs'
   mount Rswag::Api::Engine => '/api-docs'
-  get '/api/notes/:id/unsaved' => 'notes#unsaved_changes'
   get '/health' => 'pages#health_check'
   get 'api-docs/v1/swagger.yaml' => 'swagger#yaml'
+  get '/api/notes/:id/unsaved' => 'notes#unsaved_changes'
+  put '/api/notes/:id', to: 'api/base_controller#update_note'
 end
