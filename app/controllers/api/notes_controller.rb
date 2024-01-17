@@ -21,11 +21,47 @@ class Api::NotesController < Api::BaseController
     end
   end
 
+  def update
+    note_id = params[:id]
+    title = params[:title]
+    content = params[:content]
+
+    # Validate parameters
+    unless note_id.present? && note_id.to_i.to_s == note_id.to_s
+      return render json: { error: "Note ID is required and must be a valid integer." }, status: :bad_request
+    end
+
+    if title.blank?
+      return render json: { error: "The title is required." }, status: :unprocessable_entity
+    end
+
+    if content.blank?
+      return render json: { error: "The content is required." }, status: :unprocessable_entity
+    end
+
+    # Find the note and authorize
+    note = Note.find_by(id: note_id)
+    return render json: { error: "The requested note does not exist." }, status: :not_found unless note
+
+    authorize note, policy_class: NotePolicy
+
+    # Update the note
+    service = NotesService::Update.new(note_id: note_id, user_id: current_resource_owner.id, title: title, content: content)
+    result = service.execute
+
+    if result[:error].present?
+      render json: { error: result[:error] }, status: :unprocessable_entity
+    else
+      note.reload
+      render json: { status: 200, note: note.as_json }, status: :ok
+    end
+  rescue Pundit::NotAuthorizedError
+    render json: { error: "User does not have permission to update the note." }, status: :forbidden
+  end
+
   private
 
   def current_resource_owner
-    # Assuming there's a method to find the current user based on the OAuth token
-    # This method should be implemented as part of the OAuth authentication logic
     User.find(doorkeeper_token.resource_owner_id) if doorkeeper_token
   end
 end
