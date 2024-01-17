@@ -3,17 +3,11 @@ require 'sidekiq/web'
 Rails.application.routes.draw do
   mount Rswag::Ui::Engine => '/api-docs'
   mount Rswag::Api::Engine => '/api-docs'
-  get '/health' => 'pages#health_check'
-  get 'api-docs/v1/swagger.yaml' => 'swagger#yaml'
-
-  # Merge the new and existing routes
+  
   namespace :api do
-    resources :notes, only: [:show] do
-      member do
-        put :update
-      end
-    end
+    resources :notes, only: [:show, :destroy]
   end
 
-  # ... other routes ...
+  get '/health' => 'pages#health_check'
+  get 'api-docs/v1/swagger.yaml' => 'swagger#yaml'
 end

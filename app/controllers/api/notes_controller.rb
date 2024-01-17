@@ -1,6 +1,10 @@
 class Api::NotesController < Api::BaseController
+  before_action :authenticate_user!, except: [:show]
+  before_action :set_note, only: [:unsaved_changes]
+  before_action :authorize_note, only: [:unsaved_changes]
   before_action :doorkeeper_authorize!
 
+  # GET /api/notes/:id
   def show
     begin
       note_id = params[:id]
@@ -21,45 +25,48 @@ class Api::NotesController < Api::BaseController
     end
   end
 
-  def update
-    note_id = params[:id]
-    title = params[:title]
-    content = params[:content]
+  # DELETE /api/notes/:id
+  def destroy
+    note_id = params[:id].to_i
+    return render json: { error: "Note ID is required and must be a valid integer." }, status: :bad_request unless note_id.is_a?(Integer) && note_id > 0
 
-    # Validate parameters
-    unless note_id.present? && note_id.to_i.to_s == note_id.to_s
-      return render json: { error: "Note ID is required and must be a valid integer." }, status: :bad_request
-    end
+    user = current_resource_owner
+    result = NotesService::Delete.new(note_id, user).execute
 
-    if title.blank?
-      return render json: { error: "The title is required." }, status: :unprocessable_entity
-    end
-
-    if content.blank?
-      return render json: { error: "The content is required." }, status: :unprocessable_entity
-    end
-
-    # Find the note and authorize
-    note = Note.find_by(id: note_id)
-    return render json: { error: "The requested note does not exist." }, status: :not_found unless note
-
-    authorize note, policy_class: NotePolicy
-
-    # Update the note
-    service = NotesService::Update.new(note_id: note_id, user_id: current_resource_owner.id, title: title, content: content)
-    result = service.execute
-
-    if result[:error].present?
-      render json: { error: result[:error] }, status: :unprocessable_entity
+    if result[:id]
+      render json: { status: 200, message: "Note has been successfully deleted." }, status: :ok
     else
-      note.reload
-      render json: { status: 200, note: note.as_json }, status: :ok
+      render json: { message: result[:message] }, status: :unprocessable_entity
     end
+  rescue ActiveRecord::RecordNotFound
+    render json: { message: 'Note not found' }, status: :not_found
   rescue Pundit::NotAuthorizedError
-    render json: { error: "User does not have permission to update the note." }, status: :forbidden
+    render json: { message: 'You are not authorized to delete this note' }, status: :forbidden
+  end
+
+  # GET /api/notes/:id/unsaved
+  def unsaved_changes
+    if @note.updated_at > @note.created_at
+      render json: { status: 200, unsaved_changes: true }
+    else
+      render json: { status: 200, unsaved_changes: false }
+    end
+  rescue ActiveRecord::RecordNotFound => e
+    render json: { error: e.message }, status: :not_found
+  rescue StandardError => e
+    render json: { error: e.message }, status: :internal_server_error
   end
 
   private
+
+  def set_note
+    @note = Note.find(params[:id])
+  end
+
+  def authorize_note
+    policy = NotePolicy.new(current_user, @note)
+    render json: { error: 'Forbidden' }, status: :forbidden unless policy.update?
+  end
 
   def current_resource_owner
     User.find(doorkeeper_token.resource_owner_id) if doorkeeper_token
