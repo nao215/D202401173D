@@ -2,7 +2,26 @@ class Api::NotesController < Api::BaseController
   before_action :authenticate_user!, except: [:show]
   before_action :set_note, only: [:unsaved_changes]
   before_action :authorize_note, only: [:unsaved_changes]
-  before_action :doorkeeper_authorize!
+  before_action :doorkeeper_authorize!, except: [:show, :unsaved_changes]
+
+  # GET /api/notes
+  def index
+    begin
+      user_id = params.require(:user_id)
+      raise ArgumentError unless user_id.is_a?(Integer)
+
+      notes_service = NotesService::Index.new(user_id)
+      result = notes_service.execute
+
+      render json: { status: 200, notes: result[:notes] }, status: :ok
+    rescue ActionController::ParameterMissing, ArgumentError
+      render json: { error: "User ID is required and must be a valid integer." }, status: :bad_request
+    rescue ActiveRecord::RecordNotFound
+      render json: { error: "User not found." }, status: :not_found
+    rescue Pundit::NotAuthorizedError
+      render json: { error: "Forbidden" }, status: :forbidden
+    end
+  end
 
   # GET /api/notes/:id
   def show
