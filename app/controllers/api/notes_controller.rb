@@ -1,8 +1,20 @@
-class Api::NotesController < Api::BaseController
-  before_action :doorkeeper_authorize!, except: [:unsaved_changes]
-  before_action :authenticate_user!, only: [:unsaved_changes]
-  before_action :set_note, only: [:unsaved_changes, :save_error]
-  before_action :authorize_note, only: [:unsaved_changes, :save_error]
+class Api::NotesController < ApplicationController
+  before_action :authenticate_user!, except: [:create]
+  before_action :doorkeeper_authorize!, only: [:create]
+  before_action :set_note, only: [:unsaved_changes]
+  before_action :authorize_note, only: [:unsaved_changes]
+
+  # POST /api/notes
+  def create
+    note_service = NoteService::Create.new(note_params[:user_id], nil, note_params[:content])
+    result = note_service.call
+
+    if result[:error].present?
+      handle_error_response(result[:error])
+    else
+      render json: { status: 201, note: format_note_response(result) }, status: :created
+    end
+  end
 
   # GET /api/notes/:id/unsaved
   def unsaved_changes
@@ -17,24 +29,14 @@ class Api::NotesController < Api::BaseController
     render json: { error: e.message }, status: :internal_server_error
   end
 
-  def save_error
-    begin
-      return render json: { error: "Wrong format." }, status: :bad_request unless @note
-
-      error_message = params[:error] || "An error occurred while saving the note."
-      BaseService.new.log_error(error_message)
-
-      render json: { status: 200, message: "Your changes could not be saved at this time. Please try again later." }, status: :ok
-    rescue StandardError => e
-      render json: { error: "An unexpected error occurred on the server." }, status: :internal_server_error
-    end
-  end
-
   private
 
+  def note_params
+    params.require(:note).permit(:content, :user_id)
+  end
+
   def set_note
-    note_id = params[:id]
-    @note = Note.find_by(id: note_id)
+    @note = Note.find(params[:id])
   end
 
   def authorize_note
@@ -42,9 +44,27 @@ class Api::NotesController < Api::BaseController
     render json: { error: 'Forbidden' }, status: :forbidden unless policy.update?
   end
 
-  def current_user
-    # Assuming there's a method to retrieve the current authenticated user
-    # This method should be implemented in the Api::BaseController or a concern
-    super || doorkeeper_token&.resource_owner_id&.then { |id| User.find(id) }
+  def handle_error_response(error)
+    case error
+    when 'User not found or not logged in', 'User not found.'
+      render json: { error: error }, status: :not_found
+    when 'Content cannot be empty.'
+      render json: { error: error }, status: :unprocessable_entity
+    else
+      render json: { error: error }, status: :internal_server_error
+    end
+  end
+
+  def format_note_response(result)
+    # Assuming there's a method to format the note response
+    # This method should be implemented as per the application's requirements
+    # For example:
+    {
+      id: result[:note].id,
+      content: result[:note].content,
+      user_id: result[:note].user_id,
+      created_at: result[:note].created_at,
+      updated_at: result[:note].updated_at
+    }
   end
 end
