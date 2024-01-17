@@ -1,8 +1,8 @@
 class Api::NotesController < Api::BaseController
-  before_action :authenticate_user!, except: [:show]
+  before_action :authenticate_user!, except: [:show, :index]
   before_action :set_note, only: [:unsaved_changes]
   before_action :authorize_note, only: [:unsaved_changes]
-  before_action :doorkeeper_authorize!, except: [:show, :unsaved_changes]
+  before_action :doorkeeper_authorize!, except: [:show, :unsaved_changes, :index]
 
   # GET /api/notes
   def index
@@ -20,6 +20,29 @@ class Api::NotesController < Api::BaseController
       render json: { error: "User not found." }, status: :not_found
     rescue Pundit::NotAuthorizedError
       render json: { error: "Forbidden" }, status: :forbidden
+    end
+  end
+
+  # POST /api/notes
+  def create
+    begin
+      note_service = NoteService::Create.new(params[:user_id], params[:title], params[:content])
+      result = note_service.call
+
+      if result[:error].present?
+        render json: { error: result[:error] }, status: :unprocessable_entity
+      else
+        note = Note.find(result[:note_id])
+        render json: { status: 201, note: note }, status: :created
+      end
+    rescue ActiveRecord::RecordNotFound
+      render json: { error: 'User not found or not logged in' }, status: :not_found
+    rescue Pundit::NotAuthorizedError
+      render json: { error: 'User does not have permission to create the note.' }, status: :forbidden
+    rescue ArgumentError => e
+      render json: { error: e.message }, status: :bad_request
+    rescue StandardError => e
+      render json: { error: 'An unexpected error occurred on the server.' }, status: :internal_server_error
     end
   end
 
