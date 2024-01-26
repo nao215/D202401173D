@@ -1,5 +1,6 @@
 # typed: ignore
 module Api
+  include NotesService
   class BaseController < ActionController::API
     include ActionController::Cookies
     include Pundit::Authorization
@@ -60,6 +61,42 @@ module Api
       @created_at = resource.created_at
       @refresh_token_expires_in = token.refresh_expires_in
       @scope = token.scopes
+    end
+
+    def update_note
+      note_id = params[:id]
+      content = params[:content]
+
+      # Validate note ID format
+      unless note_id.to_s.match?(/\A\d+\z/)
+        return render json: { message: "Wrong format." }, status: :unprocessable_entity
+      end
+
+      # Find the note and check if it exists
+      note = Note.find_by(id: note_id)
+      unless note
+        return render json: { message: "Note not found." }, status: :not_found
+      end
+
+      # Check if the user is authorized to update the note
+      authorize note, policy_class: NotePolicy
+
+      # Validate content
+      if content.blank?
+        return render json: { message: "Note content cannot be empty." }, status: :unprocessable_entity
+      end
+
+      # Update the note
+      result = NotesService::Update.new(note_id: note_id, user_id: current_resource_owner.id, content: content).execute
+
+      if result[:error]
+        render json: { message: result[:error] }, status: :unprocessable_entity
+      else
+        render json: {
+          status: 200,
+          note: note.as_json.merge(updated_at: note.updated_at.iso8601)
+        }, status: :ok
+      end
     end
 
     def current_resource_owner
